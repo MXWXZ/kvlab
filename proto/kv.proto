@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+option go_package = ".;proto";
+
+service KVS {
+  rpc Locate(LocateRequest) returns (LocateReply) {}
+}
+
+service KVD {
+  rpc Put(PutRequest) returns (PutReply) {}
+  rpc Read(ReadRequest) returns (ReadReply) {}
+  rpc Delete(DeleteRequest) returns (DeleteReply) {}
+}
+
+enum Status {
+  UNKNOWN = 0;
+  OK = 1;
+  NOTFOUND = 2;
+  EXISTS = 3;
+}
+
+message LocateRequest {
+  string key = 1;
+}
+
+message LocateReply {
+  string addr = 1;
+}
+
+message PutRequest {
+  string key = 1;
+  string value = 2;
+}
+
+message ReadRequest {
+  string key = 1;
+}
+
+message DeleteRequest {
+  string key = 1;
+}
+
+message PutReply {
+  Status status = 1;
+}
+
+message ReadReply {
+  Status status = 1;
+  string value = 2;
+}
+
+message DeleteReply {
+  Status status = 1;
+}
