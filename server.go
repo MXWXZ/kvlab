@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"kv/proto"
@@ -46,59 +47,63 @@ func ServerWatchMaster(ech <-chan zk.Event) {
 
 func ServerChangeData(ech <-chan zk.Event) {
 	event := <-ech
-	_, _, c, err := sZoo.Conn.ChildrenW(event.Path)
+	_, st, c, err := sZoo.Conn.ChildrenW(event.Path)
 	if err != nil {
 		utils.Warn(err)
 		return
 	}
 	go ServerChangeData(c)
 
-	utils.Info("Data change ", event.Path)
-	// prevent new data node
-	dLock := zk.NewLock(sZoo.Conn, "/data/lock", zk.WorldACL(zk.PermAll))
-	if err := dLock.Lock(); err != nil {
-		utils.Warn(err)
-		return
-	}
-	defer dLock.Unlock()
-
-	s, _, err := sZoo.Conn.Children(event.Path)
-	if err != nil {
-		utils.Warn(err)
-		return
-	}
-
-	p, _, err := sZoo.Conn.Get(event.Path + "/primary")
-	if err != nil {
-		utils.Warn(err)
-		return
-	}
-	// check primary
-	if len(s) > 2 {
-		sel := ""
-		flag := false
-		for _, i := range s {
-			if i == string(p) {
-				flag = true
-				break
-			} else if i != "top" && i != "primary" && sel == "" {
-				sel = i
-			}
+	if st.NumChildren >= 2 {
+		utils.Info("Data node change ", event.Path)
+		// prevent new data node
+		dLock := zk.NewLock(sZoo.Conn, "/data/lock", zk.WorldACL(zk.PermAll))
+		if err := dLock.Lock(); err != nil {
+			utils.Warn(err)
+			return
 		}
-		if !flag {
-			utils.Info("Reselected primary ", event.Path)
-			_, err := sZoo.Conn.Set(event.Path+"/primary", []byte(sel), -1)
+		defer dLock.Unlock()
+
+		s, _, err := sZoo.Conn.Children(event.Path)
+		if err != nil {
+			utils.Warn(err)
+			return
+		}
+
+		p, _, err := sZoo.Conn.Get(event.Path + "/primary")
+		if err != nil {
+			utils.Warn(err)
+			return
+		}
+		pathSplit := strings.Split(event.Path, "/")
+		sZoo.HashMap.Add(pathSplit[len(pathSplit)-1])
+		// check primary
+		if len(s) > 2 {
+			sel := ""
+			flag := false
+			for _, i := range s {
+				if i == string(p) {
+					flag = true
+					break
+				} else if i != "top" && i != "primary" && sel == "" {
+					sel = i
+				}
+			}
+			if !flag {
+				utils.Info("Reselected primary ", event.Path)
+				_, err := sZoo.Conn.Set(event.Path+"/primary", []byte(sel), -1)
+				if err != nil {
+					utils.Warn(err)
+					return
+				}
+			}
+		} else if string(p) != "" {
+			utils.Warn("No primary exist ", event.Path)
+			_, err := sZoo.Conn.Set(event.Path+"/primary", []byte(""), -1)
 			if err != nil {
 				utils.Warn(err)
 				return
 			}
-		}
-	} else {
-		utils.Warn("No primary exist ", event.Path)
-		_, err := sZoo.Conn.Set(event.Path+"/primary", []byte(""), -1)
-		if err != nil {
-			utils.Warn(err)
-			return
 		}
 	}
 }
@@ -124,7 +129,6 @@ func ServerNewData(ech <-chan zk.Event) {
 				if err != nil {
 					utils.Fatal(err)
 				}
-				sZoo.HashMap.Add(i)
 				sZoo.DataList[i] = true
 				go ServerChangeData(c)
 			}
@@ -142,8 +146,32 @@ func ServerSwitchMaster(id int) bool {
 	if err != nil {
 		utils.Warn(err)
 	}
+	if !ServerAddMasterHook() {
+		utils.Warn(err)
+	}
 	sZoo.ZooID = 0
 	utils.Info("Switch to master, current id: 0")
+	return true
+}
+
+func ServerAddMasterHook() bool {
+	list, _, c, err := sZoo.Conn.ChildrenW("/data")
+	if err != nil {
+		utils.Warn(err)
+		return false
+	}
+	go ServerNewData(c)
+	for _, i := range list {
+		if i != "lock" {
+			_, _, c, err := sZoo.Conn.ChildrenW("/data/" + i)
+			if err != nil {
+				utils.Warn(err)
+				return false
+			}
+			sZoo.DataList[i] = true
+			go ServerChangeData(c)
+		}
+	}
 	return true
 }
 
@@ -212,21 +240,8 @@ func ServerRegister() {
 	}
 
 	if sZoo.ZooID == 0 { // master
-		list, _, c, err := sZoo.Conn.ChildrenW("/data")
-		if err != nil {
-			utils.Fatal(err)
-		}
-		go ServerNewData(c)
-		for _, i := range list {
-			if i != "lock" {
-				_, _, c, err := sZoo.Conn.ChildrenW("/data/" + i)
-				if err != nil {
-					utils.Fatal(err)
-				}
-				sZoo.HashMap.Add(i)
-				sZoo.DataList[i] = true
-				go ServerChangeData(c)
-			}
+		if !ServerAddMasterHook() {
+			os.Exit(2)
 		}
 	}
 }
@@ -262,14 +277,14 @@ func main() {
 	utils.Info("ServerRegister to zookeeper...")
 	ServerRegister()
 
-	listen, err := net.Listen("tcp", ":"+utils.GetPort())
+	listen, err := net.Listen("tcp", utils.GetIPAddr()+":"+utils.GetPort())
 	if err != nil {
 		utils.Fatal(err)
 	}
 
 	s := grpc.NewServer()
 	proto.RegisterKVSServer(s, &server{})
-	utils.Info("RPC server running on " + utils.GetPort())
+	utils.Info("RPC server running on " + utils.GetIPAddr() + ":" + utils.GetPort())
 	err = s.Serve(listen)
 	if err != nil {
 		utils.Fatal(err)

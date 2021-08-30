@@ -10,13 +10,13 @@ service KVD {
   rpc Put(PutRequest) returns (PutReply) {}
   rpc Read(ReadRequest) returns (ReadReply) {}
   rpc Delete(DeleteRequest) returns (DeleteReply) {}
+  rpc Sync(SyncRequest) returns (SyncReply) {}
 }
 
 enum Status {
   UNKNOWN = 0;
   OK = 1;
   NOTFOUND = 2;
-  EXISTS = 3;
 }
 
 message LocateRequest {
@@ -30,6 +30,7 @@ message LocateReply {
 message PutRequest {
   string key = 1;
   string value = 2;
+  bool sync = 3;
 }
 
 message ReadRequest {
@@ -38,6 +39,10 @@ message ReadRequest {
 
 message DeleteRequest {
   string key = 1;
+  bool sync = 2;
+}
+
+message SyncRequest {
 }
 
 message PutReply {
@@ -51,4 +56,9 @@ message ReadReply {
 
 message DeleteReply {
   Status status = 1;
+}
+
+message SyncReply {
+  Status status = 1;
+  map<string, string> kv = 2;
 }

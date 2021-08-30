@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sync"
 
 	"github.com/samuel/go-zookeeper/zk"
 	log "github.com/sirupsen/logrus"
@@ -14,6 +15,7 @@ type ZooState struct {
 	ZooID    int
 	DataList map[string]bool
 	HashMap  *Map
+	Mutex    sync.Mutex
 }
 
 func GetIPAddr() string {
@@ -41,6 +43,22 @@ func GetPort() string {
 		return "1926"
 	} else {
 		return os.Getenv("serverport")
+	}
+}
+
+func GetDB() string {
+	if os.Getenv("dbfile") == "" {
+		return "db.txt"
+	} else {
+		return os.Getenv("dbfile")
+	}
+}
+
+func GetRB() string {
+	if os.Getenv("rbfile") == "" {
+		return "rollback.txt"
+	} else {
+		return os.Getenv("rbfile")
 	}
 }
 

@@ -46,8 +46,19 @@ func (m *Map) IsEmpty() bool {
 	return len(m.keys) == 0
 }
 
+func (m *Map) Exist(key string) bool {
+	hash := m.hash([]byte("0" + key))
+	if v, ok := m.hashMap[hash]; ok && v == key {
+		return true
+	}
+	return false
+}
+
 func (m *Map) Add(keys ...string) {
 	for _, key := range keys {
+		if m.Exist(key) {
+			continue
+		}
 		for i := 0; i < m.replicas; i++ {
 			hash := m.hash([]byte(strconv.Itoa(i) + key))
 			m.keys = append(m.keys, hash)
